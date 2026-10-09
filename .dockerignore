@@ -1,0 +1,8 @@
+target/
+.git/
+docs/
+*.md
+!README.md
+.env
+.env.*
+.claude/

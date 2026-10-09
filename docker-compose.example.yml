@@ -1,0 +1,27 @@
+# 示例：复制为 docker-compose.yml 后按需修改。
+services:
+  lark-bot-agent:
+    build: .
+    image: lark-bot-agent
+    restart: unless-stopped
+    environment:
+      APP_ID: ${APP_ID}
+      APP_SECRET: ${APP_SECRET}
+      AGENT_KIND: ${AGENT_KIND:-claude}       # codex | claude
+      ALLOWED_OPEN_IDS: ${ALLOWED_OPEN_IDS:-}
+      ADMIN_OPEN_ID: ${ADMIN_OPEN_ID:-}
+      PERMISSION_POLICY: ${PERMISSION_POLICY:-ask}
+      # agent 凭证（按 AGENT_KIND 透传其一即可）
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # claude 可选：AGENT_MODE=bypassPermissions；codex 可选：INITIAL_AGENT_MODE=agent-full-access
+    volumes:
+      # agent 操作的仓库
+      - ${WORKSPACE:-./}:/workspace
+      # 持久化登录态（不用 API key、而是在容器里 claude login / codex login 时需要）
+      - claude-home:/home/bot/.claude
+      - codex-home:/home/bot/.codex
+
+volumes:
+  claude-home:
+  codex-home:
