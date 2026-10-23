@@ -52,7 +52,9 @@ Layers (one directory each under `src/`):
 - `render/` — `TurnState` accumulates one turn (text, thoughts, tool calls, plan, usage) and renders
   Markdown; `card.rs` builds Feishu card JSON (schema 2.0); `split.rs` splits long Markdown without
   breaking code fences.
-- `agent.rs` — `AGENT_KIND` → default `npx` command line; `AGENT_COMMAND`/`AGENT_ARGS` override.
+- `agent.rs` — `AGENT_KIND` → command line. Order: explicit `AGENT_COMMAND`, else the adapter binary
+  (`codex-acp` / `claude-agent-acp`) if found on `PATH`, else `npx -y <package>`. The Docker image relies on
+  the `PATH` lookup; there is no entrypoint script.
 - `config.rs` — all env parsing. `Config::from_pairs` exists so tests avoid touching the process env.
 
 ## Non-obvious constraints
@@ -74,3 +76,6 @@ Layers (one directory each under `src/`):
   integration test can reference it via `env!("CARGO_BIN_EXE_fake_agent")`. Prompt text selects the
   script: `hello`, `perm`, `slow`, `crash`. Extend it rather than mocking the ACP crate.
 - Not implemented: `session/load` restore after restart (FR-SESSION-9); session state is in-memory only.
+- `larksuite-oapi-sdk-rs` with the `ws` feature runs `prost-build` in its build script, so `protoc` must be on
+  `PATH` at compile time (macOS: `brew install protobuf`; the Dockerfile builder stage installs
+  `protobuf-compiler`). A failure that reads `protoc failed:` is this, not a code error.

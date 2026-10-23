@@ -3,6 +3,7 @@ NAME       ?= lark-bot-agent
 PLATFORM   ?= linux/amd64
 LATEST     ?= 0
 LOAD       ?= 0
+BUILDER    ?=
 
 ifneq ($(strip $(REGISTRY)),)
 IMAGE := $(patsubst %/,%,$(REGISTRY))/$(NAME)
@@ -16,9 +17,13 @@ TAG        ?= $(GIT_SHA)-$(BUILD_TIME)
 
 CODEX_ACP_VERSION        ?= 2.1.1
 CLAUDE_AGENT_ACP_VERSION ?= 0.88.0
+BASE_REGISTRY            ?=
 
 BUILD_ARGS := --build-arg CODEX_ACP_VERSION=$(CODEX_ACP_VERSION) \
               --build-arg CLAUDE_AGENT_ACP_VERSION=$(CLAUDE_AGENT_ACP_VERSION)
+ifneq ($(strip $(BASE_REGISTRY)),)
+BUILD_ARGS += --build-arg BASE_REGISTRY=$(patsubst %/,%,$(BASE_REGISTRY))/
+endif
 
 TAGS := -t $(IMAGE):$(TAG)
 ifeq ($(LATEST),1)
@@ -31,10 +36,14 @@ else
 OUTPUT := --push
 endif
 
+ifneq ($(strip $(BUILDER)),)
+BUILDER_FLAG := --builder $(BUILDER)
+endif
+
 .PHONY: image tag test clean
 
 image:
-	docker buildx build --platform $(PLATFORM) $(BUILD_ARGS) $(TAGS) $(OUTPUT) .
+	docker buildx build $(BUILDER_FLAG) --platform $(PLATFORM) $(BUILD_ARGS) $(TAGS) $(OUTPUT) .
 	@echo "$(IMAGE):$(TAG)"
 
 tag:

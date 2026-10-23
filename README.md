@@ -44,9 +44,9 @@ cargo run --release
 
 ### Docker
 
-镜像里已经 `npm install -g` 了 `codex-acp` 和 `claude-agent-acp`（含各自的 Codex / Claude Code 平台二进制），
-启动不再走 `npx`、不需要联网下载。`docker-entrypoint.sh` 会按 `AGENT_KIND` 自动把 `AGENT_COMMAND`
-指向预装的 bin；显式设置 `AGENT_COMMAND` 时不覆盖。
+镜像里已经 `npm install -g` 了 `codex-acp` 和 `claude-agent-acp`（含各自的 Codex / Claude Code 平台二进制）。
+Bot 启动时若在 `PATH` 里找到对应的适配器二进制就直接用，不再走 `npx`、不需要联网下载；本机
+`npm install -g` 过的同样受益。显式设置 `AGENT_COMMAND` 时以用户值为准。
 
 ```sh
 make image REGISTRY=registry.example.com/team   # linux/amd64 构建并 --push，tag = <git short sha>-<YYYYMMDDHHmm>
@@ -62,14 +62,19 @@ docker run --rm \
 ```
 
 - `AGENT_CWD` 默认 `/workspace`，把要操作的仓库挂到这里。
-- 以非 root 用户 `bot`（uid 10001）运行，这样 claude 的 `AGENT_MODE=bypassPermissions` 才可用；
-  挂载的仓库需要对该 uid 可写（或 `docker run --user $(id -u)`）。
-- 不用 API key、想复用登录态时，把 `/home/bot/.claude` 或 `/home/bot/.codex` 挂成卷，先在容器里登录一次：
-  `docker run -it --rm -v claude-home:/home/bot/.claude lark-bot-agent claude-agent-acp` 不好交互登录，
-  更简单的是在宿主机登录后把 `~/.claude/.credentials.json`（或 `~/.codex/auth.json`）拷进卷里。
+- 容器以 root 运行。`claude-agent-acp` 在 root 下默认拒绝 `bypassPermissions` 模式，镜像里设了 `IS_SANDBOX=1`
+  放开这个限制；这意味着 agent 对容器内文件系统有完全控制，请只挂载需要它操作的目录。
+- 不用 API key、想复用登录态时，把 `/root/.claude` 或 `/root/.codex` 挂成卷，在宿主机登录后把
+  `~/.claude/.credentials.json`（或 `~/.codex/auth.json`）拷进卷里。
 - 适配器版本通过 build-arg 锁定，Makefile 里对应 `CODEX_ACP_VERSION` / `CLAUDE_AGENT_ACP_VERSION` 变量：
   `make image CLAUDE_AGENT_ACP_VERSION=x.y.z`。
 - `PLATFORM` 默认 `linux/amd64`；在 Apple Silicon 上会走 QEMU 模拟编译 Rust，很慢，想本地快速验证可用 `make image PLATFORM=linux/arm64`。
+- 拉 Docker Hub 基础镜像不稳定时，用 `BASE_REGISTRY` 指向镜像加速站，值要带到 `library` 这一级，例如
+  `make image REGISTRY=... BASE_REGISTRY=docker.m.daocloud.io/library`；或者在 Docker Desktop 的
+  Settings → Docker Engine 里配置 `registry-mirrors`，这样不用改命令。
+- `BUILDER` 可指定 buildx builder（`docker buildx ls` 查看）。`docker-container` 类型的 builder 有独立缓存，
+  不复用本机 `docker pull` 过的镜像，也不走 Docker Desktop 配置的代理；换成 `BUILDER=default` 可以复用
+  daemon 缓存和代理。
 - `docker-compose.example.yml` 是一份可直接复制的 compose 示例。
 
 飞书应用侧需要：机器人能力、`im:message` 相关权限、事件订阅 `im.message.receive_v1`（长连接模式）、
