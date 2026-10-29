@@ -16,11 +16,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # larksuite-oapi-sdk-rs (ws feature) runs prost-build, which needs protoc on PATH.
-      - name: Install protoc
+      # protoc: larksuite-oapi-sdk-rs (ws feature) runs prost-build at compile time.
+      - name: Install C toolchain and protoc
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends protobuf-compiler
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libssl-dev zstd protobuf-compiler
           protoc --version
 
       - name: Install Rust
