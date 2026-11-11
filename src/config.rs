@@ -68,7 +68,6 @@ pub struct Config {
     pub queue_limit_per_chat: usize,
     pub stream_update_interval: Duration,
     pub stream_update_chars: usize,
-    pub show_thoughts: bool,
     pub mcp_servers: Vec<serde_json::Value>,
     pub acp_trace_dir: Option<PathBuf>,
     pub max_message_chars: usize,
@@ -147,7 +146,6 @@ impl Config {
             queue_limit_per_chat: parse_num(&get, "QUEUE_LIMIT_PER_CHAT", 10)? as usize,
             stream_update_interval: Duration::from_millis(parse_num(&get, "STREAM_UPDATE_INTERVAL_MS", 2000)?),
             stream_update_chars: parse_num(&get, "STREAM_UPDATE_CHARS", 500)? as usize,
-            show_thoughts: parse_bool(&get, "SHOW_THOUGHTS", false)?,
             mcp_servers,
             acp_trace_dir: get("ACP_TRACE_DIR").map(PathBuf::from),
             max_message_chars: parse_num(&get, "MAX_MESSAGE_CHARS", 4000)? as usize,
@@ -193,21 +191,6 @@ fn parse_num(
     }
 }
 
-fn parse_bool(
-    get: &dyn Fn(&str) -> Option<String>,
-    key: &str,
-    default: bool,
-) -> Result<bool, String> {
-    match get(key) {
-        None => Ok(default),
-        Some(v) => match v.to_ascii_lowercase().as_str() {
-            "1" | "true" | "yes" | "on" => Ok(true),
-            "0" | "false" | "no" | "off" => Ok(false),
-            other => Err(format!("{key} 必须是布尔值: {other:?}")),
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,7 +214,6 @@ mod tests {
         assert_eq!(c.session_idle, Duration::from_secs(7200));
         assert_eq!(c.queue_limit_per_chat, 10);
         assert_eq!(c.stream_update_interval, Duration::from_millis(2000));
-        assert!(!c.show_thoughts);
         assert_eq!(c.allowed_cwd_roots, vec![PathBuf::from("/tmp")]);
         assert!(c.allows_everyone());
         assert!(c.mcp_servers.is_empty());

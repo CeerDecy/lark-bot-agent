@@ -1,6 +1,7 @@
 //! 对 `larksuite-oapi-sdk-rs` 的薄封装：回复 / 更新消息、下载图片、查机器人身份。
 use larksuite_oapi_sdk_rs::service::im::v1::{
-    CreateMessageReqBody, PatchMessageReqBody, ReplyMessageReqBody, UpdateMessageReqBody,
+    CreateMessageReactionReqBody, CreateMessageReqBody, Emoji, PatchMessageReqBody,
+    ReplyMessageReqBody, UpdateMessageReqBody,
 };
 use larksuite_oapi_sdk_rs::{AccessTokenType, ApiReq, LarkClient, LarkError, RequestOption};
 use serde_json::Value;
@@ -102,6 +103,37 @@ impl LarkApi {
             content: Some(serde_json::json!({ "text": text }).to_string()),
         };
         let resp = self.client.im().message.update(message_id, &body, &RequestOption::default()).await?;
+        if !resp.success() {
+            return Err(api_err(resp.code_error.code, &resp.code_error.msg));
+        }
+        Ok(())
+    }
+
+    /// 给消息加表情回应（例如 `OnIt` 表示正在处理）。返回 reaction_id，便于之后移除。
+    pub async fn add_reaction(&self, message_id: &str, emoji_type: &str) -> Result<Option<String>, LarkApiError> {
+        let mut reaction_type = Emoji::default();
+        reaction_type.emoji_type = Some(emoji_type.to_string());
+        let body = CreateMessageReactionReqBody { reaction_type: Some(reaction_type) };
+        let resp = self
+            .client
+            .im()
+            .message_reaction
+            .create(message_id, &body, &RequestOption::default())
+            .await?;
+        if !resp.success() {
+            return Err(api_err(resp.code_error.code, &resp.code_error.msg));
+        }
+        Ok(resp.data.and_then(|d| d.reaction_id))
+    }
+
+    /// 移除之前添加的表情回应。
+    pub async fn remove_reaction(&self, message_id: &str, reaction_id: &str) -> Result<(), LarkApiError> {
+        let resp = self
+            .client
+            .im()
+            .message_reaction
+            .delete(message_id, reaction_id, &RequestOption::default())
+            .await?;
         if !resp.success() {
             return Err(api_err(resp.code_error.code, &resp.code_error.msg));
         }

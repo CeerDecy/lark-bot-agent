@@ -17,11 +17,16 @@ use crate::commands::{self, Command};
 use crate::config::Config;
 use crate::lark::LarkApi;
 use crate::lark::text::{self, Inbound};
-use crate::render::card::{message_card, permission_card, permission_result_card};
+use crate::render::card::{message_card, message_card_plain, permission_card, permission_result_card};
 use crate::render::split::split_markdown;
 use crate::render::{StopReasonView, TurnPhase, TurnState};
 
 const SEEN_LIMIT: usize = 2000;
+/// 处理中表情（飞书 reaction 的 emoji_type）。开始时加上，轮次结束后移除。
+const BUSY_REACTION: &str = "OnIt";
+/// 每轮随用户消息一起发给 agent 的返回格式约定。
+const MARKDOWN_INSTRUCTION: &str =
+    "回复要求：始终使用 Markdown 格式（标题、列表、表格、粗体、行内代码、代码块等），不要使用纯文本排版。";
 
 /// 一条待处理的用户消息。
 #[derive(Debug, Clone)]
@@ -275,7 +280,9 @@ impl SessionManager {
 
     async fn build_prompt(&self, job: &Job) -> Result<Vec<ContentBlock>, String> {
         match &job.inbound {
-            Inbound::Text(t) => Ok(vec![ContentBlock::Text(TextContent::new(t.clone()))]),
+            Inbound::Text(t) => Ok(vec![ContentBlock::Text(TextContent::new(format!(
+                "{MARKDOWN_INSTRUCTION}\n\n{t}"
+            )))]),
             Inbound::Image { image_key } => {
                 let supports = self.inner.acp.agent_info().map(|i| i.supports_image()).unwrap_or(false);
                 if !supports {
@@ -292,7 +299,7 @@ impl SessionManager {
                     })?;
                 let data = base64::engine::general_purpose::STANDARD.encode(bytes);
                 Ok(vec![
-                    ContentBlock::Text(TextContent::new("请看这张图片。")),
+                    ContentBlock::Text(TextContent::new(format!("{MARKDOWN_INSTRUCTION}\n\n请看这张图片。"))),
                     ContentBlock::Image(ImageContent::new(data, mime)),
                 ])
             }
@@ -300,13 +307,30 @@ impl SessionManager {
         }
     }
 
-    /// 完整一轮（需求 8.1）。
+    /// 完整一轮（需求 8.1）：先给用户消息加“处理中”表情，结束后移除。
     async fn run_turn(&self, job: Job) {
+        let reaction_id = match self.inner.lark.add_reaction(&job.message_id, BUSY_REACTION).await {
+            Ok(id) => id,
+            Err(e) => {
+                warn!(error = %e, message_id = %job.message_id, "添加处理中表情失败");
+                None
+            }
+        };
+        self.run_turn_inner(&job).await;
+        if let Some(reaction_id) = reaction_id
+            && let Err(e) = self.inner.lark.remove_reaction(&job.message_id, &reaction_id).await
+        {
+            warn!(error = %e, message_id = %job.message_id, "移除处理中表情失败");
+        }
+    }
+
+    /// 一轮的实际处理逻辑；表情等外围状态由 `run_turn` 负责。
+    async fn run_turn_inner(&self, job: &Job) {
         let started = Instant::now();
         let cfg = &self.inner.cfg;
         let in_group = job.in_group;
 
-        let blocks = match self.build_prompt(&job).await {
+        let blocks = match self.build_prompt(job).await {
             Ok(b) => b,
             Err(msg) => {
                 self.reply_text(&job.message_id, &msg, in_group).await;
@@ -328,7 +352,7 @@ impl SessionManager {
         };
 
         // FR-RENDER-3：占位消息。优先卡片，失败退纯文本（此时不做流式更新）。
-        let mut state = TurnState::new(cfg.show_thoughts);
+        let mut state = TurnState::new();
         let mut phase = TurnPhase::Running;
         let placeholder_card = message_card(state.header(&phase).0, state.header(&phase).1, &state.render_markdown(&phase));
         let placeholder = match self.inner.lark.reply_card(&job.message_id, &placeholder_card, in_group, Some(format!("ph-{}", job.message_id))).await {
@@ -378,7 +402,7 @@ impl SessionManager {
                         Some(SessionEvent::Permission(ticket)) => {
                             phase = TurnPhase::WaitingPermission;
                             dirty = true;
-                            self.send_permission_card(&job, ticket).await;
+                            self.send_permission_card(job, ticket).await;
                         }
                         Some(SessionEvent::AgentDown) => break Err(AcpError::AgentDown),
                         None => break Err(AcpError::AgentDown),
@@ -459,25 +483,33 @@ impl SessionManager {
             "轮次结束"
         );
 
-        self.deliver_final(&job, placeholder, &state, &phase).await;
+        self.deliver_final(job, placeholder, &state, &phase).await;
     }
 
     /// 结束时写入最终内容；超长则切分成多条（FR-RENDER-7）。
     async fn deliver_final(&self, job: &Job, placeholder: Option<(String, bool)>, state: &TurnState, phase: &TurnPhase) {
         let md = state.render_markdown(phase);
-        let (title, color) = state.header(phase);
+        let header = state.final_header(phase);
         let parts = split_markdown(&md, self.inner.cfg.max_message_chars);
         let total = parts.len();
         let mut iter = parts.into_iter().enumerate();
+        let card_for = |index: usize, part: &str| match header {
+            Some((title, color)) => {
+                let t = if total > 1 { format!("{title} ({index}/{total})") } else { title.to_string() };
+                message_card(&t, color, part)
+            }
+            // 正常完成时不加状态标题；超长分段只保留分段序号。
+            None if total > 1 => message_card(&format!("{index}/{total}"), "grey", part),
+            None => message_card_plain(part),
+        };
 
         match placeholder {
             Some((id, true)) => {
-                if let Some((_, first)) = iter.next() {
-                    let t = if total > 1 { format!("{title} (1/{total})") } else { title.to_string() };
-                    if let Err(e) = self.inner.lark.patch_card(&id, &message_card(&t, color, &first)).await {
-                        warn!(error = %e, "最终卡片更新失败，改为新消息");
-                        self.reply_text(&job.message_id, &first, job.in_group).await;
-                    }
+                if let Some((i, first)) = iter.next()
+                    && let Err(e) = self.inner.lark.patch_card(&id, &card_for(i + 1, &first)).await
+                {
+                    warn!(error = %e, "最终卡片更新失败，改为新消息");
+                    self.reply_text(&job.message_id, &first, job.in_group).await;
                 }
             }
             Some((id, false)) => {
@@ -490,8 +522,7 @@ impl SessionManager {
             None => {}
         }
         for (i, part) in iter {
-            let t = format!("{title} ({}/{total})", i + 1);
-            let card = message_card(&t, color, &part);
+            let card = card_for(i + 1, &part);
             if let Err(e) = self.inner.lark.reply_card(&job.message_id, &card, job.in_group, None).await {
                 warn!(error = %e, "分段卡片发送失败，退回文本");
                 self.reply_text(&job.message_id, &part, job.in_group).await;

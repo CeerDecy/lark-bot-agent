@@ -20,6 +20,19 @@ pub fn message_card(title: &str, template: &str, markdown: &str) -> Value {
     })
 }
 
+/// 不带标题栏的卡片：用于正常结束时的最终回复，避免出现“完成”等状态。
+pub fn message_card_plain(markdown: &str) -> Value {
+    json!({
+        "schema": "2.0",
+        "config": { "wide_screen_mode": true, "update_multi": true },
+        "body": {
+            "elements": [
+                { "tag": "markdown", "content": markdown }
+            ]
+        }
+    })
+}
+
 /// 审批卡片：标题、kind、rawInput 摘要 + 每个 option 一个按钮。
 pub fn permission_card(ticket: &PermissionTicket, requester_name: &str) -> Value {
     let mut lines = vec![format!("**{}**", escape_md(&ticket.title))];
@@ -134,6 +147,14 @@ mod tests {
     fn message_card_has_markdown_element() {
         let c = message_card("处理中", "blue", "**hi**");
         assert_eq!(c["header"]["template"], "blue");
+        assert_eq!(c["body"]["elements"][0]["tag"], "markdown");
+        assert_eq!(c["body"]["elements"][0]["content"], "**hi**");
+    }
+
+    #[test]
+    fn plain_card_has_no_header() {
+        let c = message_card_plain("**hi**");
+        assert!(c.get("header").is_none());
         assert_eq!(c["body"]["elements"][0]["tag"], "markdown");
         assert_eq!(c["body"]["elements"][0]["content"], "**hi**");
     }

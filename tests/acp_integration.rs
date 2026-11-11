@@ -44,7 +44,7 @@ async fn hello_turn_streams_updates_and_ends() {
     let stop = acp.prompt(&sid, text("hello"), Duration::from_secs(10)).await.unwrap();
     assert_eq!(stop, StopReason::EndTurn);
 
-    let mut state = TurnState::new(true);
+    let mut state = TurnState::new();
     while let Ok(ev) = events.try_recv() {
         if let SessionEvent::Update(u) = ev {
             state.apply(u);
@@ -52,8 +52,8 @@ async fn hello_turn_streams_updates_and_ends() {
     }
     let md = state.render_markdown(&TurnPhase::Done(StopReasonView::EndTurn));
     assert!(md.starts_with("Hi there"), "{md}");
-    assert!(md.contains("✅ [read] 读取 README.md"), "{md}");
-    assert!(md.contains("thinking"));
+    assert!(!md.contains("读取 README.md"), "{md}");
+    assert!(!md.contains("thinking"));
     assert_eq!(state.tool_call_count(), 1);
 }
 
@@ -67,7 +67,7 @@ async fn auto_allow_policy_answers_permission_without_user() {
     let mut events = acp.subscribe(&sid, "ou_user".into());
     let stop = acp.prompt(&sid, text("perm"), Duration::from_secs(10)).await.unwrap();
     assert_eq!(stop, StopReason::EndTurn);
-    let mut state = TurnState::new(false);
+    let mut state = TurnState::new();
     while let Ok(SessionEvent::Update(u)) = events.try_recv() {
         state.apply(u);
     }
@@ -110,7 +110,7 @@ async fn ask_policy_routes_ticket_and_enforces_requester() {
 
     let stop = prompt.await.unwrap().unwrap();
     assert_eq!(stop, StopReason::EndTurn);
-    let mut state = TurnState::new(false);
+    let mut state = TurnState::new();
     while let Ok(SessionEvent::Update(u)) = events.try_recv() {
         state.apply(u);
     }
@@ -208,7 +208,7 @@ async fn set_mode_bypass_skips_permission_requests() {
     let stop = acp.prompt(&created.session_id, text("perm"), Duration::from_secs(10)).await.unwrap();
     assert_eq!(stop, StopReason::EndTurn);
     assert_eq!(acp.broker().pending_count(), 0);
-    let mut state = TurnState::new(false);
+    let mut state = TurnState::new();
     while let Ok(SessionEvent::Update(u)) = events.try_recv() {
         state.apply(u);
     }
@@ -226,7 +226,7 @@ async fn trailing_text_after_stop_reason_is_not_lost() {
     let sid2 = sid.clone();
     let mut prompt = Box::pin(async move { acp2.prompt(&sid2, text("summary"), Duration::from_secs(10)).await });
 
-    let mut state = TurnState::new(false);
+    let mut state = TurnState::new();
     let mut seen_before_stop = 0;
     let stop = loop {
         tokio::select! {
@@ -254,6 +254,6 @@ async fn trailing_text_after_stop_reason_is_not_lost() {
     let md = state.render_markdown(&TurnPhase::Done(StopReasonView::EndTurn));
     assert!(md.contains("这是一个 Rust 项目。"), "尾部文本丢失 (before_stop={seen_before_stop}):\n{md}");
     assert!(md.contains("我来看一下项目结构。\n\n这是一个 Rust 项目。"), "不同 messageId 应分段:\n{md}");
-    assert!(md.contains("✅ [read] Read README.md"), "{md}");
+    assert!(!md.contains("Read README.md"), "工具调用不应展示:\n{md}");
 }
 

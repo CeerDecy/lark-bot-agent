@@ -102,7 +102,6 @@ docker run --rm \
 | `STREAM_UPDATE_CHARS` | 否 | `500` | 累积多少字符触发一次更新 |
 | `MAX_MESSAGE_CHARS` | 否 | `4000` | 单条消息字符上限，超过按段落切分 |
 | `AGENT_MODE` | 否 | - | 建会话后通过 `session/set_mode` 切到的 agent 侧模式。claude：`default` / `acceptEdits` / `plan` / `auto` / `bypassPermissions`；codex 用 `INITIAL_AGENT_MODE` 代替 |
-| `SHOW_THOUGHTS` | 否 | `false` | 是否在结尾展示思考内容 |
 | `AGENT_MCP_SERVERS_JSON` | 否 | `[]` | 透传给 `session/new` 的 `mcpServers`（ACP 格式的 JSON 数组） |
 | `ACP_TRACE_DIR` | 否 | - | 把 ACP 原始消息按行落盘（jsonl）用于排障 |
 | `OPENAI_API_KEY` / `CODEX_API_KEY` / `NO_BROWSER` / `INITIAL_AGENT_MODE` | 否 | - | 透传给 codex-acp |
